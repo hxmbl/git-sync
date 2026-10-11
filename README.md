@@ -12,5 +12,6 @@ It doesn't deserve a package manager
 # Usage
 Just run it in ur projects dir
 
-# License
-U serious? No.
+## License
+
+MIT — see [LICENSE](LICENSE).
