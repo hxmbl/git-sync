@@ -2,12 +2,17 @@
 
 Install by:
 ```bash
+go install github.com/hxmbl/git-sync@latest
+```
+
+Build from source:
+```bash
 git clone https://github.com/Hxmbl/git-sync/
 cd git-sync
 go install .
 ```
 
-`go install` places the `git-sync` executable in your Go bin directory. Make sure that directory is on your `PATH`.
+`go install` places the `git-sync` executable in your Go bin directory. *Make sure that directory is on your `PATH`*.
 
 # Usage
 
