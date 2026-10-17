@@ -2,17 +2,32 @@ name: Release
 on:
   push:
     tags: ['v*']
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: 'stable' }
-      - run: go build -o git-sync
+        with:
+          go-version-file: go.mod
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            ext=""; [ "$os" = windows ] && ext=".exe"
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w" \
+              -o "dist/git-sync_${GITHUB_REF_NAME}_${os}_${arch}${ext}" .
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
       - uses: softprops/action-gh-release@v2
         with:
-          files: git-sync
+          files: dist/*
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
