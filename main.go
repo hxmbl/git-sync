@@ -32,7 +32,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("git-sync", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	parallelism := flags.Int("j", 4, "number of repositories to update at once")
+	parallelism := flags.Int("j", 6, "number of repositories to update at once")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: git-sync [-j parallelism] [projects-directory]")
 		fmt.Fprintln(stderr, "Fetch and pull each Git repository in the directory concurrently.")
