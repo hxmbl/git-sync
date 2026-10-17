@@ -17,7 +17,7 @@ Run it from the directory containing your projects, or pass that directory:
 git-sync [projects-directory]
 ```
 
-Repositories are fetched and pulled concurrently (up to four at a time by default). Set the concurrency with `-j`:
+Repositories are fetched and pulled concurrently (up to six at a time by default). Set the concurrency with `-j`:
 
 ```bash
 git-sync -j 8 ~/Projects
