@@ -23,7 +23,8 @@ jobs:
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             os="${target%/*}"; arch="${target#*/}"
             ext=""; [ "$os" = windows ] && ext=".exe"
-            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w" \
+            GOOS="$os" GOARCH="$arch" go build -trimpath \
+              -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" \
               -o "dist/git-sync_${GITHUB_REF_NAME}_${os}_${arch}${ext}" .
           done
           (cd dist && sha256sum * > SHA256SUMS)

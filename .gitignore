@@ -1,0 +1,4 @@
+/git-sync
+/dist/
+*.exe
+coverage.out
