@@ -36,6 +36,7 @@ const (
 	statusUpdated
 	statusSkipped
 	statusFailed
+	statusAhead
 )
 
 type updateResult struct {
