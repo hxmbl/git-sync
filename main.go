@@ -74,7 +74,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var (
 		jobs        int
 		colorChoice string
-		quiet       bool
 		verbose     bool
 		only        stringList
 		skip        stringList
@@ -94,8 +93,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.IntVar(&jobs, "j", defaultJobs, "")
 	flags.IntVar(&jobs, "jobs", defaultJobs, "")
 	flags.StringVar(&colorChoice, "color", "auto", "")
-	flags.BoolVar(&quiet, "q", false, "")
-	flags.BoolVar(&quiet, "quiet", false, "")
 	flags.BoolVar(&verbose, "v", false, "")
 	flags.BoolVar(&verbose, "verbose", false, "")
 	flags.Var(&only, "only", "")
@@ -131,8 +128,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return usageError(stderr, fmt.Errorf("-j must be at least 1 (got %d)", jobs))
 	case timeout <= 0:
 		return usageError(stderr, fmt.Errorf("--timeout must be positive (got %s)", timeout))
-	case quiet && verbose:
-		return usageError(stderr, errors.New("--quiet and --verbose cannot be combined"))
 	case flags.NArg() > 1:
 		return usageError(stderr, errors.New("expected at most one projects directory"))
 	}
@@ -202,21 +197,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		workers = len(repositories)
 	}
 
-	if !jsonOut && !quiet {
-		header := fmt.Sprintf("Syncing %s in %s",
-			p.bold(fmt.Sprintf("%d %s", len(repositories), plural(len(repositories), "repository", "repositories"))),
-			p.dim(displayDir(root)))
-		if workers < len(repositories) {
-			header += " " + p.dim(fmt.Sprintf("(up to %d at a time)", workers))
-		}
-		fmt.Fprintln(stdout, header)
+	options := syncOptions{dryRun: dryRun, allRefs: allRefs, tags: fetchTags, timeout: timeout, verbose: verbose}
+
+	var prog *progress
+	if !jsonOut {
+		prog = newProgress(stdout, p, len(repositories), nameWidth, verbose)
 		if dryRun {
 			fmt.Fprintf(stdout, "%s\n", p.yellow("Dry run: nothing will be modified."))
 		}
-		fmt.Fprintln(stdout)
+		prog.start()
 	}
-
-	options := syncOptions{dryRun: dryRun, allRefs: allRefs, tags: fetchTags, timeout: timeout, verbose: verbose}
 
 	// Cancelling this context tears down every fetch in flight. stop is called
 	// as soon as it fires so a second Ctrl-C still kills the process outright.
@@ -258,14 +248,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	results := make([]updateResult, 0, len(repositories))
 	for result := range resultQueue {
 		results = append(results, result)
-		if !jsonOut && ctx.Err() == nil {
-			printResult(stdout, p, result, nameWidth, verbose, quiet)
+		if prog != nil && ctx.Err() == nil {
+			prog.complete(result)
 		}
 	}
 	elapsed := time.Since(started)
 
 	if ctx.Err() != nil {
-		fmt.Fprintf(stderr, "\nInterrupted.\n")
+		if prog != nil {
+			prog.abort()
+		}
+		fmt.Fprintf(stderr, "Interrupted.\n")
 		return 130
 	}
 
@@ -274,8 +267,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error: writing JSON: %v\n", err)
 			return 1
 		}
-	} else {
-		printSummary(stdout, p, results, elapsed, nameWidth, root, quiet)
+	} else if prog != nil {
+		prog.finish(elapsed)
 	}
 
 	for _, result := range results {
@@ -400,19 +393,19 @@ func syncRepository(parent context.Context, repo repository, options syncOptions
 	if err != nil {
 		if hasNoUpstream(upstreamOutput) {
 			result.status = statusSkipped
-			result.detail = "skipped (no upstream tracking branch)"
+			result.detail = "has no upstream"
 			result.hint = "Set one with 'git branch --set-upstream-to=<remote>/<branch>'."
 			return result
 		}
 		// Anything else means the directory is not a usable repository, which
 		// must not be reported as success.
 		result.status = statusFailed
-		result.detail = "could not read repository"
+		result.detail = "could not be read"
 		result.output = upstreamOutput
 		result.err = err
 		if isTimeout(err) {
-			result.detail = "could not read repository (timed out)"
-			result.hint = "Timed out. Increase --timeout or check the local filesystem, then rerun."
+			result.detail = "timed out while reading"
+			result.hint = "Increase --timeout or check the local filesystem, then rerun."
 		} else {
 			result.hint = "The directory looks like a repository but could not be read. Make sure it is intact, then rerun."
 		}
@@ -420,7 +413,8 @@ func syncRepository(parent context.Context, repo repository, options syncOptions
 	}
 	if !strings.Contains(upstream, "/") {
 		result.status = statusSkipped
-		result.detail = fmt.Sprintf("skipped (upstream %q is not a remote branch)", upstream)
+		result.detail = "has no remote upstream"
+		result.hint = fmt.Sprintf("Upstream %q is not a remote branch.", upstream)
 		return result
 	}
 	remote, branch, _ := strings.Cut(upstream, "/")
@@ -450,7 +444,7 @@ func syncRepository(parent context.Context, repo repository, options syncOptions
 	}
 	if after == "" {
 		result.status = statusFailed
-		result.detail = "fetch failed (could not resolve upstream)"
+		result.detail = "could not resolve upstream after fetch"
 		result.output = output
 		result.err = errors.New("could not resolve upstream after fetch")
 		result.hint = "Check the branch's upstream configuration, then rerun."
@@ -482,7 +476,7 @@ func syncRepository(parent context.Context, repo repository, options syncOptions
 		merged, err := fastForward(ctx, repo.path, after)
 		if err != nil {
 			result.status = statusFailed
-			result.detail = "update failed"
+			result.detail = updateFailureDetail(merged)
 			result.output = merged
 			result.err = err
 			result.hint = updateHint(merged)
@@ -500,18 +494,34 @@ func syncRepository(parent context.Context, repo repository, options syncOptions
 		if err != nil {
 			count = 0
 		}
-		result.status = statusUpToDate
-		result.detail = fmt.Sprintf("up to date (local ahead by %s)", pluralCommits(count))
+		result.commits = count
+		result.status = statusAhead
+		result.detail = fmt.Sprintf("needs push (%s ahead)", pluralCommits(count))
+		result.hint = "Run 'git push' when you're ready."
 		result.output = output
 		return result
 	}
 
 	result.status = statusFailed
-	result.detail = "update failed (diverged)"
+	result.detail = "has diverged from upstream"
 	result.output = output
 	result.err = errors.New("branch and upstream have diverged")
-	result.hint = "The branch and its upstream have diverged. Rebase or merge manually, then rerun."
+	result.hint = "Rebase or merge manually, then rerun."
 	return result
+}
+
+func updateFailureDetail(output string) string {
+	lower := strings.ToLower(output)
+	switch {
+	case strings.Contains(lower, "would be overwritten"), strings.Contains(lower, "local changes"):
+		return "has uncommitted changes"
+	case strings.Contains(lower, "conflict"):
+		return "has a merge conflict"
+	case strings.Contains(lower, "fast-forward"), strings.Contains(lower, "diverged"):
+		return "has diverged from upstream"
+	default:
+		return "could not update"
+	}
 }
 
 func fetchHint(err error, output string) string {
@@ -569,15 +579,13 @@ const usageText = `Usage:
   git-sync [flags] [projects-directory]
 
 Fetch and fast-forward each Git repository in a directory, concurrently.
-Each repository is fetched once, then fast-forwarded only if its upstream
-moved; repositories that are already current do no extra work.
+Shows a live progress line; only repositories that need attention are listed.
 
 Flags:
   Essential:
       -j, --jobs int       repositories to sync at once (default 16)
           --color string   color output: auto, always, or never (default "auto")
-      -q, --quiet          only show failures and the summary
-      -v, --verbose        show git output and timings for every repository
+      -v, --verbose        show every repository, plus git output on failures
 
   Selection:
           --only string    only sync this repository (repeatable)
@@ -589,7 +597,7 @@ Flags:
           --timeout dur    per-repository network timeout (default 2m0s)
 
   Output:
-          --json           print machine-readable JSON
+          --json           print machine-readable JSON (for scripts)
           --dry-run        fetch and report, but do not modify anything
 
   Other:

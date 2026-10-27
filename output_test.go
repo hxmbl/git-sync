@@ -55,24 +55,6 @@ func TestSanitizeStripsControlCharacters(t *testing.T) {
 	}
 }
 
-func TestRetryCommandQuotesNames(t *testing.T) {
-	results := []updateResult{
-		{repository: repository{name: "alpha"}},
-		{repository: repository{name: "my repo"}},
-		{repository: repository{name: "it's"}},
-	}
-	got := retryCommand(results, "/home/user/projects")
-	want := "git-sync --only alpha --only 'my repo' --only 'it'\\''s' /home/user/projects"
-	if got != want {
-		t.Errorf("retryCommand =\n  %q\nwant\n  %q", got, want)
-	}
-
-	// The default directory is omitted so the command can be pasted anywhere.
-	if got := retryCommand(results, "."); strings.Contains(got, " .") {
-		t.Errorf("retryCommand with \".\" should not append the root: %q", got)
-	}
-}
-
 func TestPluralization(t *testing.T) {
 	if got := plural(1, "repository", "repositories"); got != "repository" {
 		t.Errorf("plural(1) = %q", got)
@@ -158,9 +140,12 @@ func TestStatusLabelsAndGlyphs(t *testing.T) {
 	if got := statusLabel(statusUpdated); got != "fast-forwarded" {
 		t.Errorf("statusLabel(fast-forwarded) = %q", got)
 	}
+	if got := statusLabel(statusAhead); got != "ahead" {
+		t.Errorf("statusLabel(ahead) = %q", got)
+	}
 	// Glyphs must differ per status so the report stays scannable without color.
 	seen := map[string]status{}
-	for _, s := range []status{statusUpToDate, statusUpdated, statusSkipped, statusFailed} {
+	for _, s := range []status{statusUpToDate, statusUpdated, statusSkipped, statusFailed, statusAhead} {
 		glyph := statusGlyph(palette{}, s)
 		if other, dup := seen[glyph]; dup {
 			t.Errorf("statuses %v and %v share the glyph %q", other, s, glyph)

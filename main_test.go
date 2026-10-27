@@ -80,15 +80,6 @@ func seededRepo(t *testing.T, remotes, seeds, projects, name string, commits int
 	return working, seed
 }
 
-// resultLines returns everything printed before the summary block, so
-// assertions cannot be satisfied by the failure recap alone.
-func resultLines(output string) string {
-	if i := strings.Index(output, "\n──────── Summary"); i >= 0 {
-		return output[:i]
-	}
-	return output
-}
-
 func assertLine(t *testing.T, output, name, detail string) {
 	t.Helper()
 	for _, line := range strings.Split(output, "\n") {
@@ -97,6 +88,20 @@ func assertLine(t *testing.T, output, name, detail string) {
 		}
 	}
 	t.Errorf("no line containing both %q and %q in:\n%s", name, detail, output)
+}
+
+func assertNoRepoLine(t *testing.T, output, name string) {
+	t.Helper()
+	for _, line := range strings.Split(output, "\n") {
+		// Ignore the final summary line which mentions totals, not repo names.
+		if strings.Contains(line, "All good") || strings.Contains(line, "need attention") || strings.Contains(line, "Finished in") {
+			continue
+		}
+		if strings.Contains(line, name) {
+			t.Errorf("did not expect a line for %q:\n%s", name, output)
+			return
+		}
+	}
 }
 
 func setupProjects(t *testing.T) string {
@@ -151,29 +156,23 @@ func TestSyncEndToEnd(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--color", "never", "-j", "4", projects}, &stdout, &stderr)
 	if code != 1 {
-		t.Errorf("first run exit = %d, want 1 (two repositories need attention)\nstdout:\n%s\nstderr:\n%s",
+		t.Errorf("first run exit = %d, want 1 (failed repositories need attention)\nstdout:\n%s\nstderr:\n%s",
 			code, stdout.String(), stderr.String())
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("first run wrote to stderr: %s", stderr.String())
 	}
 
-	results := resultLines(stdout.String())
-	assertLine(t, results, "alpha", "fast-forwarded 2 commits")
-	assertLine(t, results, "current", "up to date")
-	assertLine(t, results, "ahead", "up to date (local ahead by 1 commit)")
-	assertLine(t, results, "diverged", "update failed (diverged)")
-	assertLine(t, results, "dirty", "update failed")
-	assertLine(t, results, "local", "skipped (no upstream tracking branch)")
-
-	if !strings.Contains(stdout.String(), "2 failed") {
-		t.Errorf("summary should report 2 failed:\n%s", stdout.String())
-	}
-	if !strings.Contains(stdout.String(), "Retry the failed repositories:") {
-		t.Errorf("summary should suggest a retry command:\n%s", stdout.String())
-	}
-	if !strings.Contains(stdout.String(), "--only dirty") {
-		t.Errorf("retry command should list the failed repositories:\n%s", stdout.String())
+	out := stdout.String()
+	// Successful repos stay silent; only attention lines are printed.
+	assertNoRepoLine(t, out, "alpha")
+	assertNoRepoLine(t, out, "current")
+	assertLine(t, out, "ahead", "needs push")
+	assertLine(t, out, "diverged", "has diverged from upstream")
+	assertLine(t, out, "dirty", "has uncommitted changes")
+	assertLine(t, out, "local", "has no upstream")
+	if !strings.Contains(out, "need attention") {
+		t.Errorf("summary should report attention count:\n%s", out)
 	}
 
 	// The fast-forwarded repository must now be level with its upstream.
@@ -184,8 +183,6 @@ func TestSyncEndToEnd(t *testing.T) {
 	}
 
 	// A second run must re-report the repositories that still need attention.
-	// Previously a diverged repository was misreported as up to date on the
-	// second run because only the remote-tracking ref was compared.
 	stdout.Reset()
 	stderr.Reset()
 	code = run([]string{"--color", "never", "-j", "4", projects}, &stdout, &stderr)
@@ -193,16 +190,47 @@ func TestSyncEndToEnd(t *testing.T) {
 		t.Errorf("second run exit = %d, want 1\nstdout:\n%s", code, stdout.String())
 	}
 
-	second := resultLines(stdout.String())
-	assertLine(t, second, "alpha", "up to date")
-	assertLine(t, second, "current", "up to date")
-	assertLine(t, second, "ahead", "up to date (local ahead by 1 commit)")
-	assertLine(t, second, "diverged", "update failed (diverged)")
-	assertLine(t, second, "dirty", "update failed")
-	assertLine(t, second, "local", "skipped (no upstream tracking branch)")
-	if strings.Contains(stdout.String(), "fast-forwarded") {
-		t.Errorf("second run should not fast-forward anything:\n%s", stdout.String())
+	second := stdout.String()
+	assertNoRepoLine(t, second, "alpha")
+	assertNoRepoLine(t, second, "current")
+	assertLine(t, second, "ahead", "needs push")
+	assertLine(t, second, "diverged", "has diverged from upstream")
+	assertLine(t, second, "dirty", "has uncommitted changes")
+	assertLine(t, second, "local", "has no upstream")
+}
+
+func TestAllGoodSummary(t *testing.T) {
+	requireGit(t)
+	projects := t.TempDir()
+	remotes := t.TempDir()
+	seeds := t.TempDir()
+	seededRepo(t, remotes, seeds, projects, "ok", 1)
+
+	var stdout bytes.Buffer
+	code := run([]string{"--color", "never", projects}, &stdout, io.Discard)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s", code, stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "All good") || !strings.Contains(stdout.String(), "synced successfully") {
+		t.Errorf("expected all-good summary:\n%s", stdout.String())
+	}
+}
+
+func TestVerboseShowsSuccesses(t *testing.T) {
+	requireGit(t)
+	projects := t.TempDir()
+	remotes := t.TempDir()
+	seeds := t.TempDir()
+	_, seed := seededRepo(t, remotes, seeds, projects, "alpha", 1)
+	commitFile(t, seed, "f.txt", "moved", "c2")
+	pushToOrigin(t, seed)
+
+	var stdout bytes.Buffer
+	code := run([]string{"--color", "never", "--verbose", projects}, &stdout, io.Discard)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s", code, stdout.String())
+	}
+	assertLine(t, stdout.String(), "alpha", "fast-forwarded 1 commit")
 }
 
 func TestDryRunDoesNotModifyRepositories(t *testing.T) {
@@ -218,11 +246,11 @@ func TestDryRunDoesNotModifyRepositories(t *testing.T) {
 	before := gitRun(t, working, "rev-parse", "HEAD")
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--color", "never", "--dry-run", projects}, &stdout, &stderr)
+	code := run([]string{"--color", "never", "--dry-run", "--verbose", projects}, &stdout, &stderr)
 	if code != 0 {
 		t.Errorf("dry-run exit = %d, want 0\n%s", code, stdout.String())
 	}
-	assertLine(t, resultLines(stdout.String()), "alpha", "would fast-forward 1 commit")
+	assertLine(t, stdout.String(), "alpha", "would fast-forward 1 commit")
 
 	after := gitRun(t, working, "rev-parse", "HEAD")
 	if before != after {
@@ -292,8 +320,8 @@ func TestBrokenRepositoryIsReportedAsFailure(t *testing.T) {
 	if code != 1 {
 		t.Errorf("exit = %d, want 1 (a broken repository needs attention)\n%s", code, stdout.String())
 	}
-	assertLine(t, resultLines(stdout.String()), "broken", "could not read repository")
-	if strings.Contains(stdout.String(), "skipped") {
+	assertLine(t, stdout.String(), "broken", "could not be read")
+	if strings.Contains(stdout.String(), "has no upstream") {
 		t.Errorf("a broken repository must not be reported as skipped:\n%s", stdout.String())
 	}
 }
@@ -317,7 +345,7 @@ func TestFlagAndDirectoryOrdering(t *testing.T) {
 			if code := run(c.args, &stdout, &stderr); code != 0 {
 				t.Errorf("exit = %d, want 0\nstderr: %s", code, stderr.String())
 			}
-			if !strings.Contains(stdout.String(), filepath.Base(dir)) {
+			if !strings.Contains(stdout.String(), "No Git repositories found") {
 				t.Errorf("the projects directory should have been read:\n%s", stdout.String())
 			}
 		})
@@ -344,7 +372,6 @@ func TestUsageErrors(t *testing.T) {
 		{"unknown flag", []string{"--bogus"}, 2, "flag provided but not defined"},
 		{"zero jobs", []string{"-j", "0"}, 2, "-j must be at least 1"},
 		{"negative timeout", []string{"--timeout", "-1s"}, 2, "--timeout must be positive"},
-		{"quiet and verbose", []string{"-q", "-v"}, 2, "cannot be combined"},
 		{"too many directories", []string{"one", "two"}, 2, "at most one projects directory"},
 	}
 
@@ -380,6 +407,9 @@ func TestHelpAndVersion(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("--help missing %q", want)
 		}
+	}
+	if strings.Contains(stdout.String(), "--quiet") {
+		t.Errorf("--quiet should have been removed from help:\n%s", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("--help wrote to stderr: %s", stderr.String())

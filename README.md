@@ -30,28 +30,24 @@ Repositories are synced concurrently, up to sixteen at a time by default:
 git-sync -j 8 ~/Projects
 ```
 
-Each repository is fetched exactly once, and only touched afterwards if its
-upstream actually moved:
+A live progress line tracks the run. Successful repositories stay silent;
+only ones that need attention are listed as they finish:
 
 ```
-Syncing 5 repositories in ~/Projects
+!  diverged   has diverged from upstream
+    ↳ Rebase or merge manually, then rerun.
+!  dirty      has uncommitted changes
+    ↳ Commit or stash your local changes, then rerun.
+!  ahead      needs push (1 commit ahead)
+    ↳ Run 'git push' when you're ready.
+Syncing ⠋ 4/5
+```
 
-•  local-only  skipped (no upstream tracking branch)
-✓  beta        up to date
-✗  diverged    update failed (diverged)
-    ↳ The branch and its upstream have diverged. Rebase or merge manually, then rerun.
-✓  gamma       up to date (local ahead by 1 commit)
-↑  epsilon     fast-forwarded 1 commit
+When everything is clean:
 
-──────── Summary ───────────────────────────────────────────
-  2 up to date  ·  1 fast-forwarded  ·  1 skipped  ·  1 failed
+```
+✓ All good · 5 synced successfully
   Finished in 117ms.
-
-  1 repository needs attention:
-    diverged    update failed (diverged)
-
-  Retry the failed repositories:
-      git-sync --only diverged ~/Projects
 ```
 
 # Options
@@ -64,8 +60,7 @@ Flags:
   Essential:
       -j, --jobs int       repositories to sync at once (default 16)
           --color string   color output: auto, always, or never (default "auto")
-      -q, --quiet          only show failures and the summary
-      -v, --verbose        show git output and timings for every repository
+      -v, --verbose        show every repository, plus git output on failures
 
   Selection:
           --only string    only sync this repository (repeatable)
@@ -77,7 +72,7 @@ Flags:
           --timeout dur    per-repository network timeout (default 2m0s)
 
   Output:
-          --json           print machine-readable JSON
+          --json           print machine-readable JSON (for scripts)
           --dry-run        fetch and report, but do not modify anything
 
   Other:
@@ -85,28 +80,30 @@ Flags:
       -V, --version        print the version
 ```
 
-| Status | Meaning |
+| Attention | Meaning |
 | --- | --- |
-| `↑ fast-forwarded` | the upstream moved and the local branch followed it |
-| `✓ up to date` | the local branch is level with its upstream (local commits are reported as `local ahead`) |
-| `• skipped` | nothing to do — usually no upstream tracking branch |
-| `✗ failed` | the repository needs attention; fetch or update did not succeed |
+| `has uncommitted changes` | local edits block a fast-forward |
+| `has diverged from upstream` | local and remote each have unique commits |
+| `needs push` | local commits have not been pushed |
+| `has no upstream` | no tracking branch configured |
+| `fetch failed` | network, auth, or remote error |
 
 Colour follows `--color`, then `NO_COLOR`, then `TERM` (`dumb` or empty turns it
-off), and only applies when the output is a terminal.
+off), and only applies when the output is a terminal. The spinner only animates
+on a TTY.
 
 # Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| 0 | every repository is in the desired state |
-| 1 | at least one repository needs attention |
+| 0 | sync finished; any remaining attention lines are informational (ahead / no upstream) |
+| 1 | at least one repository failed to sync (dirty, diverged, fetch error, …) |
 | 2 | bad usage, or the projects directory could not be read |
 | 130 | interrupted with Ctrl-C |
 
 # JSON output
 
-`--json` prints one report instead of streaming lines:
+`--json` prints one report instead of the progress UI — handy for scripts and CI:
 
 ```bash
 git-sync --json ~/Projects

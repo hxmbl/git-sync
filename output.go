@@ -7,24 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/charmbracelet/lipgloss"
 )
-
-func statusGlyph(p palette, s status) string {
-	switch s {
-	case statusUpToDate:
-		return p.gray("✓")
-	case statusUpdated:
-		return p.green("↑")
-	case statusSkipped:
-		return p.yellow("•")
-	case statusAhead:
-		return p.cyan("⇡")
-	default:
-		return p.red("✗")
-	}
-}
 
 func statusLabel(s status) string {
 	switch s {
@@ -41,11 +24,23 @@ func statusLabel(s status) string {
 	}
 }
 
-func printResult(w io.Writer, p palette, res updateResult, nameWidth int, verbose, quiet bool) {
-	if quiet && res.status != statusFailed {
-		return
+func statusGlyph(p palette, s status) string {
+	switch s {
+	case statusUpToDate:
+		return p.gray("✓")
+	case statusUpdated:
+		return p.green("↑")
+	case statusSkipped:
+		return p.yellow("•")
+	case statusAhead:
+		return p.cyan("⇡")
+	default:
+		return p.red("✗")
 	}
+}
 
+// printVerboseResult is the old per-repository line, kept for --verbose.
+func printVerboseResult(w io.Writer, p palette, res updateResult, nameWidth int) {
 	name := truncate(sanitize(res.repository.name), nameWidth)
 	detail := sanitize(res.detail)
 	switch res.status {
@@ -62,16 +57,12 @@ func printResult(w io.Writer, p palette, res updateResult, nameWidth int, verbos
 	}
 
 	suffix := ""
-	if verbose && res.duration > 0 {
+	if res.duration > 0 {
 		suffix = p.dim("  " + formatDuration(res.duration))
 	}
 	fmt.Fprintf(w, "%s  %s  %s%s\n", statusGlyph(p, res.status), padRight(name, nameWidth), detail, suffix)
-
-	if verbose || res.status == statusFailed {
+	if res.output != "" && (res.status == statusFailed || res.status == statusUpdated) {
 		printGitOutput(w, p, res.output)
-	}
-	if res.hint != "" && (res.status == statusFailed || verbose) {
-		fmt.Fprintf(w, "    %s %s\n", p.cyan("↳"), sanitize(res.hint))
 	}
 }
 
@@ -85,195 +76,6 @@ func printGitOutput(w io.Writer, p palette, output string) {
 		}
 		fmt.Fprintf(w, "    %s\n", p.dim(sanitize(line)))
 	}
-}
-
-func printSummary(w io.Writer, p palette, results []updateResult, elapsed time.Duration, nameWidth int, root string, quiet bool) {
-	var up, updated, skipped, failed, ahead int
-	var failedRepos []updateResult
-	var aheadRepos []updateResult
-	for _, res := range results {
-		switch res.status {
-		case statusUpToDate:
-			up++
-		case statusUpdated:
-			updated++
-		case statusSkipped:
-			skipped++
-		case statusFailed:
-			failed++
-			failedRepos = append(failedRepos, res)
-		case statusAhead:
-			ahead++
-			aheadRepos = append(aheadRepos, res)
-		}
-	}
-
-	fmt.Fprintln(w)
-
-	if updated == 0 && skipped == 0 && failed == 0 && ahead == 0 {
-		if p.enabled {
-			box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("42")).Padding(0, 2)
-			content := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42")).Render("✓ All systems synced") + "\n" +
-				lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("%d %s up to date • Checked in %s", up, plural(up, "repository", "repositories"), formatDuration(elapsed)))
-			fmt.Fprintln(w, box.Render(content))
-			return
-		}
-		fmt.Fprintf(w, "%s All %d %s up to date.\n", p.green("✓"), up, plural(up, "repository", "repositories"))
-		fmt.Fprintf(w, "  %s\n", p.dim("Checked in "+formatDuration(elapsed)+"."))
-		return
-	}
-
-	if p.enabled {
-		titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-		box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(1, 3)
-		var b strings.Builder
-		b.WriteString(titleStyle.Render("Summary") + "\n")
-		parts := make([]string, 0, 5)
-		if up > 0 {
-			parts = append(parts, lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(fmt.Sprintf("✓ %d up to date", up)))
-		}
-		if ahead > 0 {
-			parts = append(parts, lipgloss.NewStyle().Foreground(lipgloss.Color("45")).Render(fmt.Sprintf("⇡ %d ahead", ahead)))
-		}
-		if updated > 0 {
-			parts = append(parts, lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(fmt.Sprintf("↑ %d fast-forwarded", updated)))
-		}
-		if skipped > 0 {
-			parts = append(parts, lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(fmt.Sprintf("• %d skipped", skipped)))
-		}
-		if failed > 0 {
-			parts = append(parts, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196")).Render(fmt.Sprintf("✗ %d failed", failed)))
-		}
-		b.WriteString(strings.Join(parts, "  ·  ") + "\n")
-		b.WriteString(lipgloss.NewStyle().Faint(true).Render("Finished in "+formatDuration(elapsed)+".") + "\n")
-
-		if len(aheadRepos) > 0 {
-			b.WriteString("\n")
-			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("45")).Render(fmt.Sprintf("⚡ Needs push (%d)", len(aheadRepos))) + "\n")
-			for _, res := range aheadRepos {
-				b.WriteString(fmt.Sprintf("  %s  %s\n", padRight(truncate(sanitize(res.repository.name), nameWidth), nameWidth), lipgloss.NewStyle().Faint(true).Render(sanitize(res.detail))))
-			}
-			cmd := pushCommand(aheadRepos, root)
-			b.WriteString("\n")
-			b.WriteString(lipgloss.NewStyle().Faint(true).Render("Push:") + "\n")
-			b.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("45")).Render(cmd) + "\n")
-		}
-
-		if len(failedRepos) > 0 {
-			b.WriteString("\n")
-			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196")).Render(fmt.Sprintf("❗ Needs attention (%d)", len(failedRepos))) + "\n")
-			for _, res := range failedRepos {
-				b.WriteString(fmt.Sprintf("  %s  %s\n", padRight(truncate(sanitize(res.repository.name), nameWidth), nameWidth), lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Render(sanitize(res.detail))))
-			}
-			b.WriteString("\n")
-			b.WriteString(lipgloss.NewStyle().Faint(true).Render("Retry:") + "\n")
-			b.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(retryCommand(failedRepos, root)) + "\n")
-		}
-		fmt.Fprint(w, box.Render(b.String())+"\n")
-		return
-	}
-
-	writeSectionTitle(w, p, "Summary")
-
-	parts := make([]string, 0, 5)
-	if up > 0 {
-		parts = append(parts, p.gray(fmt.Sprintf("%d up to date", up)))
-	}
-	if ahead > 0 {
-		parts = append(parts, p.cyan(fmt.Sprintf("%d ahead of remote", ahead)))
-	}
-	if updated > 0 {
-		parts = append(parts, p.green(fmt.Sprintf("%d fast-forwarded", updated)))
-	}
-	if skipped > 0 {
-		parts = append(parts, p.yellow(fmt.Sprintf("%d skipped", skipped)))
-	}
-	if failed > 0 {
-		parts = append(parts, p.red(fmt.Sprintf("%d failed", failed)))
-	}
-	fmt.Fprintf(w, "  %s\n", strings.Join(parts, p.dim("  ·  ")))
-	fmt.Fprintf(w, "  %s\n", p.dim("Finished in "+formatDuration(elapsed)+"."))
-
-	if len(aheadRepos) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintf(w, "  %s\n", p.cyan(fmt.Sprintf("%d %s need to push:", len(aheadRepos), plural(len(aheadRepos), "repository", "repositories"))))
-		for _, res := range aheadRepos {
-			fmt.Fprintf(w, "    %s  %s\n",
-				padRight(truncate(sanitize(res.repository.name), nameWidth), nameWidth),
-				p.cyan(sanitize(res.detail)))
-		}
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "  Push them:")
-		fmt.Fprintf(w, "      %s\n", p.dim(pushCommand(aheadRepos, root)))
-	}
-
-	if len(failedRepos) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintf(w, "  %s\n", p.red(fmt.Sprintf("%d %s %s attention:", len(failedRepos), plural(len(failedRepos), "repository", "repositories"), plural(len(failedRepos), "needs", "need"))))
-		for _, res := range failedRepos {
-			fmt.Fprintf(w, "    %s  %s\n",
-				padRight(truncate(sanitize(res.repository.name), nameWidth), nameWidth),
-				p.red(sanitize(res.detail)))
-		}
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "  Retry the failed repositories:")
-		fmt.Fprintf(w, "      %s\n", p.dim(retryCommand(failedRepos, root)))
-	}
-}
-
-func writeSectionTitle(w io.Writer, p palette, title string) {
-	dashes := 50 - len(title)
-	if dashes < 3 {
-		dashes = 3
-	}
-	fmt.Fprintln(w, p.dim(strings.Repeat("─", 8)+" "+title+" "+strings.Repeat("─", dashes)))
-}
-
-func pushCommand(results []updateResult, root string) string {
-	if len(results) == 1 {
-		res := results[0]
-		remote := res.remote
-		branch := res.branch
-		if remote == "" {
-			remote = "origin"
-		}
-		if branch == "" {
-			branch = res.repository.name // fallback
-		}
-		return fmt.Sprintf("git -C %s push %s %s", shellQuote(res.repository.path), shellQuote(remote), shellQuote(branch))
-	}
-	var b strings.Builder
-	b.WriteString("for repo in")
-	for _, res := range results {
-		b.WriteString(" ")
-		b.WriteString(shellQuote(res.repository.path))
-	}
-	b.WriteString("; do (cd \"$repo\" && git push) || true; done")
-	return b.String()
-}
-
-func retryCommand(results []updateResult, root string) string {
-	var b strings.Builder
-	b.WriteString("git-sync")
-	for _, res := range results {
-		b.WriteString(" --only ")
-		b.WriteString(shellQuote(res.repository.name))
-	}
-	if root != "." {
-		b.WriteString(" ")
-		b.WriteString(shellQuote(root))
-	}
-	return b.String()
-}
-
-func shellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	if !strings.ContainsAny(s, " \t\n\"'\\$`*?[]{}()<>|&;!#~") {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // --- JSON output ---------------------------------------------------------
@@ -337,9 +139,6 @@ func writeJSON(w io.Writer, root string, results []updateResult, elapsed time.Du
 		case statusFailed:
 			report.Summary.Failed++
 		case statusAhead:
-			if report.Summary.Ahead == 0 && report.Summary.FastForwarded == 0 && report.Summary.Skipped == 0 && report.Summary.Failed == 0 && report.Summary.UpToDate >= 0 {
-				// allow
-			}
 			report.Summary.Ahead++
 		}
 	}
