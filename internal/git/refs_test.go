@@ -1,4 +1,4 @@
-package main
+package git
 
 import (
 	"os"
@@ -23,7 +23,7 @@ func TestResolveGitDir(t *testing.T) {
 	root := t.TempDir()
 
 	// Not a repository at all.
-	if gitDir, err := resolveGitDir(root); err != nil || gitDir != "" {
+	if gitDir, err := ResolveGitDir(root); err != nil || gitDir != "" {
 		t.Fatalf("resolveGitDir(non-repo) = %q, %v; want \"\", nil", gitDir, err)
 	}
 
@@ -32,7 +32,7 @@ func TestResolveGitDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(plain, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := resolveGitDir(plain); err != nil || got != filepath.Join(plain, ".git") {
+	if got, err := ResolveGitDir(plain); err != nil || got != filepath.Join(plain, ".git") {
 		t.Fatalf("resolveGitDir(plain) = %q, %v", got, err)
 	}
 
@@ -46,7 +46,7 @@ func TestResolveGitDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(worktree, ".git"), "gitdir: "+realGitDir+"\n")
-	if got, err := resolveGitDir(worktree); err != nil || got != realGitDir {
+	if got, err := ResolveGitDir(worktree); err != nil || got != realGitDir {
 		t.Fatalf("resolveGitDir(worktree) = %q, %v; want %q", got, err, realGitDir)
 	}
 
@@ -56,7 +56,7 @@ func TestResolveGitDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(relative, ".git"), "gitdir: ../realgit\n")
-	if got, err := resolveGitDir(relative); err != nil || got != filepath.Join(root, "realgit") {
+	if got, err := ResolveGitDir(relative); err != nil || got != filepath.Join(root, "realgit") {
 		t.Fatalf("resolveGitDir(relative) = %q, %v; want %q", got, err, filepath.Join(root, "realgit"))
 	}
 }
@@ -75,13 +75,13 @@ func TestReadRefPrefersLooseThenPacked(t *testing.T) {
 			packedOID+" "+packedRef+"\n"+
 			"^cccccccccccccccccccccccccccccccccccccccc\n")
 
-	if got := readRef(gitDir, looseRef); got != looseOID {
+	if got := ReadRef(gitDir, looseRef); got != looseOID {
 		t.Errorf("readRef(loose) = %q, want %q", got, looseOID)
 	}
-	if got := readRef(gitDir, packedRef); got != packedOID {
+	if got := ReadRef(gitDir, packedRef); got != packedOID {
 		t.Errorf("readRef(packed) = %q, want %q", got, packedOID)
 	}
-	if got := readRef(gitDir, "refs/remotes/origin/missing"); got != "" {
+	if got := ReadRef(gitDir, "refs/remotes/origin/missing"); got != "" {
 		t.Errorf("readRef(missing) = %q, want \"\"", got)
 	}
 }
@@ -99,7 +99,7 @@ func TestReadRefFollowsCommonDir(t *testing.T) {
 	writeFile(t, filepath.Join(common, "packed-refs"),
 		shared+" refs/remotes/origin/main\n")
 
-	if got := readRef(worktree, "refs/remotes/origin/main"); got != shared {
+	if got := ReadRef(worktree, "refs/remotes/origin/main"); got != shared {
 		t.Errorf("readRef via commondir = %q, want %q", got, shared)
 	}
 	if got := commonDir(worktree); got != common {
@@ -115,19 +115,19 @@ func TestReadHEAD(t *testing.T) {
 	// Symbolic HEAD that resolves through a branch ref.
 	writeFile(t, filepath.Join(gitDir, "HEAD"), "ref: refs/heads/main\n")
 	writeFile(t, filepath.Join(gitDir, "refs", "heads", "main"), branchOID+"\n")
-	if got := readHEAD(gitDir); got != branchOID {
+	if got := ReadHEAD(gitDir); got != branchOID {
 		t.Errorf("readHEAD(symbolic) = %q, want %q", got, branchOID)
 	}
 
 	// Symbolic HEAD pointing at a branch that does not exist.
 	writeFile(t, filepath.Join(gitDir, "HEAD"), "ref: refs/heads/nope\n")
-	if got := readHEAD(gitDir); got != "" {
+	if got := ReadHEAD(gitDir); got != "" {
 		t.Errorf("readHEAD(missing branch) = %q, want \"\"", got)
 	}
 
 	// Detached HEAD holds the object ID directly.
 	writeFile(t, filepath.Join(gitDir, "HEAD"), detachedOID+"\n")
-	if got := readHEAD(gitDir); got != detachedOID {
+	if got := ReadHEAD(gitDir); got != detachedOID {
 		t.Errorf("readHEAD(detached) = %q, want %q", got, detachedOID)
 	}
 }
@@ -139,7 +139,7 @@ func TestRepositorySizeCountsPacks(t *testing.T) {
 	writeFile(t, filepath.Join(gitDir, "objects", "pack", "a.keep"), strings.Repeat("x", 7))
 	writeFile(t, filepath.Join(gitDir, "objects", "info", "packs"), strings.Repeat("x", 999))
 
-	if got := repositorySize(gitDir); got != 140 {
+	if got := RepositorySize(gitDir); got != 140 {
 		t.Errorf("repositorySize = %d, want 140 (pack + idx only)", got)
 	}
 }

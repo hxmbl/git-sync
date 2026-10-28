@@ -1,4 +1,4 @@
-package main
+package report
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hxmbl/git-sync/internal/model"
 )
 
 var errFake = errors.New("boom")
@@ -134,38 +136,38 @@ func TestParseColorMode(t *testing.T) {
 }
 
 func TestStatusLabelsAndGlyphs(t *testing.T) {
-	if got := statusLabel(statusUpToDate); got != "up-to-date" {
+	if got := statusLabel(model.StatusUpToDate); got != "up-to-date" {
 		t.Errorf("statusLabel(up-to-date) = %q", got)
 	}
-	if got := statusLabel(statusUpdated); got != "fast-forwarded" {
+	if got := statusLabel(model.StatusUpdated); got != "fast-forwarded" {
 		t.Errorf("statusLabel(fast-forwarded) = %q", got)
 	}
-	if got := statusLabel(statusAhead); got != "ahead" {
+	if got := statusLabel(model.StatusAhead); got != "ahead" {
 		t.Errorf("statusLabel(ahead) = %q", got)
 	}
 	// Glyphs must differ per status so the report stays scannable without color.
-	seen := map[string]status{}
-	for _, s := range []status{statusUpToDate, statusUpdated, statusSkipped, statusFailed, statusAhead} {
-		glyph := statusGlyph(palette{}, s)
+	seen := map[string]model.Status{}
+	for _, s := range []model.Status{model.StatusUpToDate, model.StatusUpdated, model.StatusSkipped, model.StatusFailed, model.StatusAhead} {
+		glyph := statusGlyph(Palette{}, s)
 		if other, dup := seen[glyph]; dup {
 			t.Errorf("statuses %v and %v share the glyph %q", other, s, glyph)
 		}
 		seen[glyph] = s
 	}
 	// Disabled palette must emit no escape codes.
-	if strings.Contains(statusGlyph(palette{}, statusFailed), "\033") {
+	if strings.Contains(statusGlyph(Palette{}, model.StatusFailed), "\033") {
 		t.Error("disabled palette should not emit ANSI escapes")
 	}
 }
 
 func TestWriteJSONMapsStatuses(t *testing.T) {
 	var buf bytes.Buffer
-	results := []updateResult{
-		{repository: repository{name: "alpha"}, status: statusUpdated, commits: 2, remote: "origin", branch: "main"},
-		{repository: repository{name: "beta"}, status: statusUpToDate, duration: 900 * time.Millisecond},
-		{repository: repository{name: "gamma"}, status: statusFailed, err: errFake},
+	results := []model.UpdateResult{
+		{Repository: model.Repository{Name: "alpha"}, Status: model.StatusUpdated, Commits: 2, Remote: "origin", Branch: "main"},
+		{Repository: model.Repository{Name: "beta"}, Status: model.StatusUpToDate, Duration: 900 * time.Millisecond},
+		{Repository: model.Repository{Name: "gamma"}, Status: model.StatusFailed, Err: errFake},
 	}
-	if err := writeJSON(&buf, "/projects", results, 3*time.Second, false); err != nil {
+	if err := WriteJSON(&buf, "/projects", results, 3*time.Second, false); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,4 +1,4 @@
-package main
+package report
 
 import (
 	"io"
@@ -61,22 +61,32 @@ const ansiReset = "\033[0m"
 
 // palette wraps strings in ANSI escapes when color is enabled. When it is not,
 // every method is the identity function, so redirected output stays clean.
-type palette struct{ enabled bool }
+type Palette struct{ enabled bool }
 
-func (p palette) wrap(code, s string) string {
+func (p Palette) wrap(code, s string) string {
 	if !p.enabled || s == "" {
 		return s
 	}
 	return code + s + ansiReset
 }
 
-func (p palette) bold(s string) string       { return p.wrap("\033[1m", s) }
-func (p palette) dim(s string) string        { return p.wrap("\033[2m", s) }
-func (p palette) red(s string) string        { return p.wrap("\033[31m", s) }
-func (p palette) green(s string) string      { return p.wrap("\033[32m", s) }
-func (p palette) yellow(s string) string     { return p.wrap("\033[33m", s) }
-func (p palette) cyan(s string) string       { return p.wrap("\033[36m", s) }
-func (p palette) gray(s string) string       { return p.wrap("\033[90m", s) }
-func (p palette) boldRed(s string) string    { return p.wrap("\033[1;31m", s) }
-func (p palette) boldGreen(s string) string  { return p.wrap("\033[1;32m", s) }
-func (p palette) boldYellow(s string) string { return p.wrap("\033[1;33m", s) }
+func NewPalette(value string, w io.Writer, disabled bool) Palette {
+	mode := parseColorMode(value)
+	if disabled {
+		mode = colorNever
+	}
+	return Palette{enabled: colorEnabled(mode, w)}
+}
+
+func (p Palette) bold(s string) string       { return p.wrap("\033[1m", s) }
+func (p Palette) dim(s string) string        { return p.wrap("\033[2m", s) }
+func (p Palette) red(s string) string        { return p.wrap("\033[31m", s) }
+func (p Palette) green(s string) string      { return p.wrap("\033[32m", s) }
+func (p Palette) yellow(s string) string     { return p.wrap("\033[33m", s) }
+func (p Palette) cyan(s string) string       { return p.wrap("\033[36m", s) }
+func (p Palette) gray(s string) string       { return p.wrap("\033[90m", s) }
+func (p Palette) boldRed(s string) string    { return p.wrap("\033[1;31m", s) }
+func (p Palette) boldGreen(s string) string  { return p.wrap("\033[1;32m", s) }
+func (p Palette) boldYellow(s string) string { return p.wrap("\033[1;33m", s) }
+
+func (p Palette) Yellow(s string) string { return p.yellow(s) }
