@@ -434,8 +434,45 @@ func TestHelpAndVersion(t *testing.T) {
 	if code := run([]string{"-V"}, &stdout, &stderr); code != 0 {
 		t.Errorf("-V exit = %d, want 0", code)
 	}
-	if !strings.Contains(stdout.String(), "git-sync ") {
-		t.Errorf("-V output = %q", stdout.String())
+	if got, want := stdout.String(), "git-sync test\n"; got != want {
+		t.Errorf("-V output = %q, want %q", got, want)
+	}
+}
+
+func TestRunUsesProvidedVersion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--version"}, &stdout, &stderr, "v1.2.3"); code != 0 {
+		t.Fatalf("--version exit = %d, want 0", code)
+	}
+	if got, want := stdout.String(), "git-sync v1.2.3\n"; got != want {
+		t.Errorf("--version output = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("--version wrote to stderr: %s", stderr.String())
+	}
+}
+
+func TestExpandPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{"~", home},
+		{"~/Projects", filepath.Join(home, "Projects")},
+		{"/tmp/projects", "/tmp/projects"},
+	} {
+		got, err := expandPath(test.input)
+		if err != nil {
+			t.Errorf("expandPath(%q): %v", test.input, err)
+			continue
+		}
+		if got != test.want {
+			t.Errorf("expandPath(%q) = %q, want %q", test.input, got, test.want)
+		}
 	}
 }
 

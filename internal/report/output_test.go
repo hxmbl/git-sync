@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -188,6 +189,32 @@ func TestWriteJSONMapsStatuses(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("JSON output missing %s\n%s", want, out)
 		}
+	}
+}
+
+func TestWriteJSONProducesSortedValidReportWithoutMutatingResults(t *testing.T) {
+	results := []model.UpdateResult{
+		{Repository: model.Repository{Name: "zeta"}, Status: model.StatusAhead, Commits: 1},
+		{Repository: model.Repository{Name: "alpha"}, Status: model.StatusSkipped, Detail: "has no upstream"},
+	}
+	before := append([]model.UpdateResult(nil), results...)
+	var buf bytes.Buffer
+	if err := WriteJSON(&buf, "/projects", results, time.Second, true); err != nil {
+		t.Fatal(err)
+	}
+
+	var got jsonReport
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("WriteJSON emitted invalid JSON: %v\n%s", err, buf.String())
+	}
+	if len(got.Repositories) != 2 || got.Repositories[0].Name != "alpha" || got.Repositories[1].Name != "zeta" {
+		t.Errorf("repositories = %#v, want sorted [alpha zeta]", got.Repositories)
+	}
+	if !got.DryRun || got.Summary.Total != 2 || got.Summary.Skipped != 1 || got.Summary.Ahead != 1 {
+		t.Errorf("report flags/summary = %#v, want dryRun with total 2, skipped 1, ahead 1", got)
+	}
+	if results[0].Repository.Name != before[0].Repository.Name || results[1].Repository.Name != before[1].Repository.Name {
+		t.Errorf("WriteJSON mutated input order: got %#v, want %#v", results, before)
 	}
 }
 
