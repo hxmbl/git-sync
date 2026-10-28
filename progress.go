@@ -21,12 +21,12 @@ type progress struct {
 	verbose     bool
 	nameWidth   int
 
-	mu       sync.Mutex
-	frame    int
-	drawn    bool
-	stopCh   chan struct{}
-	stopped  bool
-	wg       sync.WaitGroup
+	mu        sync.Mutex
+	frame     int
+	drawn     bool
+	stopCh    chan struct{}
+	stopped   bool
+	wg        sync.WaitGroup
 	attention int
 }
 
