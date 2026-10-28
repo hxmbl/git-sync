@@ -4,14 +4,14 @@ Fetch and fast-forward every Git repository in a directory, concurrently.
 
 Install by:
 ```bash
-go install github.com/hxmbl/git-sync@latest
+go install github.com/hxmbl/git-sync/cmd/git-sync@latest
 ```
 
 Build from source:
 ```bash
 git clone https://github.com/Hxmbl/git-sync/
 cd git-sync
-go install .
+go install ./cmd/git-sync
 ```
 
 `go install` places the `git-sync` executable in your Go bin directory. *Make sure that directory is on your `PATH`*.
@@ -164,3 +164,12 @@ git-sync --json ~/Projects
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Project layout
+
+- `cmd/git-sync` contains the executable entry point.
+- `internal/app` handles command-line options and run orchestration.
+- `internal/syncer` discovers and synchronizes repositories.
+- `internal/git` wraps Git commands and reads repository refs.
+- `internal/report` formats terminal and JSON output.
+- `internal/model` defines data shared between the internal packages.

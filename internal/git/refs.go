@@ -1,4 +1,4 @@
-package main
+package git
 
 import (
 	"bufio"
@@ -10,7 +10,7 @@ import (
 // resolveGitDir returns the Git directory for a working tree at path, or "" if
 // path is not a repository. A ".git" directory is the common case; a ".git"
 // file (worktrees and submodules) contains "gitdir: <path>".
-func resolveGitDir(path string) (string, error) {
+func ResolveGitDir(path string) (string, error) {
 	info, err := os.Lstat(filepath.Join(path, ".git"))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -58,7 +58,7 @@ func commonDir(gitDir string) string {
 // readRef resolves a fully qualified ref name to an object ID by reading loose
 // refs and packed-refs directly, avoiding a git subprocess. It returns "" when
 // the ref cannot be found.
-func readRef(gitDir, refname string) string {
+func ReadRef(gitDir, refname string) string {
 	common := commonDir(gitDir)
 
 	if data, err := os.ReadFile(filepath.Join(common, filepath.FromSlash(refname))); err == nil {
@@ -91,14 +91,14 @@ func readRef(gitDir, refname string) string {
 // readHEAD returns the object ID HEAD points at, following the symbolic ref in
 // ".git/HEAD" when the branch exists. It returns "" when HEAD is unreadable.
 // HEAD is per-worktree, so it is read from gitDir rather than commonDir.
-func readHEAD(gitDir string) string {
+func ReadHEAD(gitDir string) string {
 	data, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
 	if err != nil {
 		return ""
 	}
 	head := strings.TrimSpace(string(data))
 	if refname, ok := strings.CutPrefix(head, "ref:"); ok {
-		return readRef(gitDir, strings.TrimSpace(refname))
+		return ReadRef(gitDir, strings.TrimSpace(refname))
 	}
 	if isObjectID(head) {
 		return head
@@ -125,7 +125,7 @@ func isObjectID(s string) bool {
 // repositorySize approximates how much work a fetch will involve, using the
 // size of the pack files. It only stats a handful of files, so it is cheap
 // enough to use as a scheduling hint.
-func repositorySize(gitDir string) int64 {
+func RepositorySize(gitDir string) int64 {
 	entries, err := os.ReadDir(filepath.Join(commonDir(gitDir), "objects", "pack"))
 	if err != nil {
 		return 0

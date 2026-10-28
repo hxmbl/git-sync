@@ -1,10 +1,12 @@
-package main
+package report
 
 import (
 	"fmt"
 	"io"
 	"sync"
 	"time"
+
+	"github.com/hxmbl/git-sync/internal/model"
 )
 
 // brailleFrames is the classic rich/pip-style spinner.
@@ -12,9 +14,9 @@ var brailleFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // progress renders a single in-place "Syncing ⠋ n/total" line on a TTY,
 // prints attention lines as they arrive, and restores a clean prompt at the end.
-type progress struct {
+type Progress struct {
 	w           io.Writer
-	p           palette
+	p           Palette
 	total       int
 	done        int
 	interactive bool
@@ -30,8 +32,8 @@ type progress struct {
 	attention int
 }
 
-func newProgress(w io.Writer, p palette, total, nameWidth int, verbose bool) *progress {
-	return &progress{
+func NewProgress(w io.Writer, p Palette, total, nameWidth int, verbose bool) *Progress {
+	return &Progress{
 		w:           w,
 		p:           p,
 		total:       total,
@@ -42,7 +44,7 @@ func newProgress(w io.Writer, p palette, total, nameWidth int, verbose bool) *pr
 	}
 }
 
-func (pr *progress) start() {
+func (pr *Progress) Start() {
 	if !pr.interactive {
 		return
 	}
@@ -70,12 +72,12 @@ func (pr *progress) start() {
 	pr.mu.Unlock()
 }
 
-func (pr *progress) complete(res updateResult) {
+func (pr *Progress) Complete(res model.UpdateResult) {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 	pr.done++
 
-	if needsAttention(res.status) {
+	if needsAttention(res.Status) {
 		pr.attention++
 		pr.clearLocked()
 		pr.writeAttentionLocked(res)
@@ -92,7 +94,7 @@ func (pr *progress) complete(res updateResult) {
 }
 
 // abort clears the spinner without printing a final status (e.g. on Ctrl-C).
-func (pr *progress) abort() {
+func (pr *Progress) Abort() {
 	pr.mu.Lock()
 	pr.stopped = true
 	pr.clearLocked()
@@ -101,7 +103,7 @@ func (pr *progress) abort() {
 	pr.wg.Wait()
 }
 
-func (pr *progress) finish(elapsed time.Duration) {
+func (pr *Progress) Finish(elapsed time.Duration) {
 	pr.mu.Lock()
 	pr.stopped = true
 	pr.clearLocked()
@@ -125,7 +127,7 @@ func (pr *progress) finish(elapsed time.Duration) {
 	fmt.Fprintf(pr.w, "  %s\n", pr.p.dim("Finished in "+formatDuration(elapsed)+"."))
 }
 
-func (pr *progress) renderLocked() {
+func (pr *Progress) renderLocked() {
 	if !pr.interactive || pr.stopped {
 		return
 	}
@@ -140,7 +142,7 @@ func (pr *progress) renderLocked() {
 	pr.drawn = true
 }
 
-func (pr *progress) clearLocked() {
+func (pr *Progress) clearLocked() {
 	if !pr.interactive || !pr.drawn {
 		return
 	}
@@ -148,35 +150,35 @@ func (pr *progress) clearLocked() {
 	pr.drawn = false
 }
 
-func (pr *progress) writeAttentionLocked(res updateResult) {
-	name := padRight(truncate(sanitize(res.repository.name), pr.nameWidth), pr.nameWidth)
+func (pr *Progress) writeAttentionLocked(res model.UpdateResult) {
+	name := padRight(truncate(sanitize(res.Repository.Name), pr.nameWidth), pr.nameWidth)
 	msg := sanitize(attentionMessage(res))
 	fmt.Fprintf(pr.w, "%s  %s  %s\n", pr.p.boldYellow("!"), pr.p.bold(name), pr.p.yellow(msg))
-	if pr.verbose && res.output != "" {
-		printGitOutput(pr.w, pr.p, res.output)
+	if pr.verbose && res.Output != "" {
+		printGitOutput(pr.w, pr.p, res.Output)
 	}
-	if res.hint != "" {
-		fmt.Fprintf(pr.w, "    %s %s\n", pr.p.dim("↳"), pr.p.dim(sanitize(res.hint)))
+	if res.Hint != "" {
+		fmt.Fprintf(pr.w, "    %s %s\n", pr.p.dim("↳"), pr.p.dim(sanitize(res.Hint)))
 	}
 }
 
-func needsAttention(s status) bool {
+func needsAttention(s model.Status) bool {
 	switch s {
-	case statusFailed, statusAhead, statusSkipped:
+	case model.StatusFailed, model.StatusAhead, model.StatusSkipped:
 		return true
 	default:
 		return false
 	}
 }
 
-func attentionMessage(res updateResult) string {
-	if res.detail != "" {
-		return res.detail
+func attentionMessage(res model.UpdateResult) string {
+	if res.Detail != "" {
+		return res.Detail
 	}
-	switch res.status {
-	case statusAhead:
+	switch res.Status {
+	case model.StatusAhead:
 		return "needs push"
-	case statusSkipped:
+	case model.StatusSkipped:
 		return "has no upstream"
 	default:
 		return "needs attention"

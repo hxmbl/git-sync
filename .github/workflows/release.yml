@@ -25,7 +25,7 @@ jobs:
             ext=""; [ "$os" = windows ] && ext=".exe"
             GOOS="$os" GOARCH="$arch" go build -trimpath \
               -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" \
-              -o "dist/git-sync_${GITHUB_REF_NAME}_${os}_${arch}${ext}" .
+              -o "dist/git-sync_${GITHUB_REF_NAME}_${os}_${arch}${ext}" ./cmd/git-sync
           done
           (cd dist && sha256sum * > SHA256SUMS)
       - uses: softprops/action-gh-release@v2

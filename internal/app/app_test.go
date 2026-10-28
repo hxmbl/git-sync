@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"bytes"
@@ -10,6 +10,20 @@ import (
 	"strings"
 	"testing"
 )
+
+func run(args []string, stdout, stderr io.Writer) int {
+	return Run(args, stdout, stderr, "test")
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func requireGit(t *testing.T) {
 	t.Helper()

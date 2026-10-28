@@ -1,4 +1,4 @@
-package main
+package git
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func gitEnv() []string {
 	)
 }
 
-func runGit(ctx context.Context, directory string, args ...string) (string, error) {
+func Run(ctx context.Context, directory string, args ...string) (string, error) {
 	full := make([]string, 0, len(gitConfig)+len(args))
 	full = append(full, gitConfig...)
 	full = append(full, args...)
@@ -63,8 +63,8 @@ func runGit(ctx context.Context, directory string, args ...string) (string, erro
 // "origin/main"). The command's output is returned alongside the error so the
 // caller can distinguish a branch with no upstream from a repository that
 // cannot be read at all.
-func upstreamBranch(ctx context.Context, directory string) (string, string, error) {
-	output, err := runGit(ctx, directory, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+func UpstreamBranch(ctx context.Context, directory string) (string, string, error) {
+	output, err := Run(ctx, directory, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	if err != nil {
 		return "", output, err
 	}
@@ -73,13 +73,13 @@ func upstreamBranch(ctx context.Context, directory string) (string, string, erro
 
 // hasNoUpstream reports whether an upstream lookup failed only because the
 // branch tracks nothing, as opposed to the repository being unusable.
-func hasNoUpstream(output string) bool {
+func HasNoUpstream(output string) bool {
 	lower := strings.ToLower(output)
 	return strings.Contains(lower, "no upstream configured") ||
 		strings.Contains(lower, "head does not point to a branch")
 }
 
-func fetchCommand(remote, branch string, allRefs, tags bool) []string {
+func FetchCommand(remote, branch string, allRefs, tags bool) []string {
 	args := []string{"fetch", "--quiet"}
 	if !tags {
 		args = append(args, "--no-tags")
@@ -92,16 +92,16 @@ func fetchCommand(remote, branch string, allRefs, tags bool) []string {
 	return args
 }
 
-func revParse(ctx context.Context, directory, rev string) (string, error) {
-	output, err := runGit(ctx, directory, "rev-parse", "--verify", rev)
+func RevParse(ctx context.Context, directory, rev string) (string, error) {
+	output, err := Run(ctx, directory, "rev-parse", "--verify", rev)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(output), nil
 }
 
-func commitCount(ctx context.Context, directory, revisionRange string) (int, error) {
-	output, err := runGit(ctx, directory, "rev-list", "--count", revisionRange)
+func CommitCount(ctx context.Context, directory, revisionRange string) (int, error) {
+	output, err := Run(ctx, directory, "rev-list", "--count", revisionRange)
 	if err != nil {
 		return 0, err
 	}
@@ -114,15 +114,15 @@ func commitCount(ctx context.Context, directory, revisionRange string) (int, err
 
 // isAncestor reports whether ancestor is reachable from descendant. Any error
 // (including the normal "not an ancestor" exit status) is treated as false.
-func isAncestor(ctx context.Context, directory, ancestor, descendant string) bool {
-	_, err := runGit(ctx, directory, "merge-base", "--is-ancestor", ancestor, descendant)
+func IsAncestor(ctx context.Context, directory, ancestor, descendant string) bool {
+	_, err := Run(ctx, directory, "merge-base", "--is-ancestor", ancestor, descendant)
 	return err == nil
 }
 
-func fastForward(ctx context.Context, directory, oid string) (string, error) {
-	return runGit(ctx, directory, "merge", "--ff-only", oid)
+func FastForward(ctx context.Context, directory, oid string) (string, error) {
+	return Run(ctx, directory, "merge", "--ff-only", oid)
 }
 
-func isTimeout(err error) bool {
+func IsTimeout(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }

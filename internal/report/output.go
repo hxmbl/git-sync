@@ -1,4 +1,4 @@
-package main
+package report
 
 import (
 	"encoding/json"
@@ -7,32 +7,34 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/hxmbl/git-sync/internal/model"
 )
 
-func statusLabel(s status) string {
+func statusLabel(s model.Status) string {
 	switch s {
-	case statusUpToDate:
+	case model.StatusUpToDate:
 		return "up-to-date"
-	case statusUpdated:
+	case model.StatusUpdated:
 		return "fast-forwarded"
-	case statusSkipped:
+	case model.StatusSkipped:
 		return "skipped"
-	case statusAhead:
+	case model.StatusAhead:
 		return "ahead"
 	default:
 		return "failed"
 	}
 }
 
-func statusGlyph(p palette, s status) string {
+func statusGlyph(p Palette, s model.Status) string {
 	switch s {
-	case statusUpToDate:
+	case model.StatusUpToDate:
 		return p.gray("✓")
-	case statusUpdated:
+	case model.StatusUpdated:
 		return p.green("↑")
-	case statusSkipped:
+	case model.StatusSkipped:
 		return p.yellow("•")
-	case statusAhead:
+	case model.StatusAhead:
 		return p.cyan("⇡")
 	default:
 		return p.red("✗")
@@ -40,33 +42,33 @@ func statusGlyph(p palette, s status) string {
 }
 
 // printVerboseResult is the old per-repository line, kept for --verbose.
-func printVerboseResult(w io.Writer, p palette, res updateResult, nameWidth int) {
-	name := truncate(sanitize(res.repository.name), nameWidth)
-	detail := sanitize(res.detail)
-	switch res.status {
-	case statusUpToDate:
+func printVerboseResult(w io.Writer, p Palette, res model.UpdateResult, nameWidth int) {
+	name := truncate(sanitize(res.Repository.Name), nameWidth)
+	detail := sanitize(res.Detail)
+	switch res.Status {
+	case model.StatusUpToDate:
 		detail = p.gray(detail)
-	case statusUpdated:
+	case model.StatusUpdated:
 		detail = p.green(detail)
-	case statusSkipped:
+	case model.StatusSkipped:
 		detail = p.yellow(detail)
-	case statusAhead:
+	case model.StatusAhead:
 		detail = p.cyan(detail)
 	default:
 		detail = p.red(detail)
 	}
 
 	suffix := ""
-	if res.duration > 0 {
-		suffix = p.dim("  " + formatDuration(res.duration))
+	if res.Duration > 0 {
+		suffix = p.dim("  " + formatDuration(res.Duration))
 	}
-	fmt.Fprintf(w, "%s  %s  %s%s\n", statusGlyph(p, res.status), padRight(name, nameWidth), detail, suffix)
-	if res.output != "" && (res.status == statusFailed || res.status == statusUpdated) {
-		printGitOutput(w, p, res.output)
+	fmt.Fprintf(w, "%s  %s  %s%s\n", statusGlyph(p, res.Status), padRight(name, nameWidth), detail, suffix)
+	if res.Output != "" && (res.Status == model.StatusFailed || res.Status == model.StatusUpdated) {
+		printGitOutput(w, p, res.Output)
 	}
 }
 
-func printGitOutput(w io.Writer, p palette, output string) {
+func printGitOutput(w io.Writer, p Palette, output string) {
 	lines := nonEmptyLines(output)
 	const maxLines = 20
 	for i, line := range lines {
@@ -108,37 +110,37 @@ type jsonReport struct {
 	Summary      jsonSummary      `json:"summary"`
 }
 
-func writeJSON(w io.Writer, root string, results []updateResult, elapsed time.Duration, dryRun bool) error {
-	ordered := append([]updateResult(nil), results...)
+func WriteJSON(w io.Writer, root string, results []model.UpdateResult, elapsed time.Duration, dryRun bool) error {
+	ordered := append([]model.UpdateResult(nil), results...)
 	sort.SliceStable(ordered, func(i, j int) bool {
-		return ordered[i].repository.name < ordered[j].repository.name
+		return ordered[i].Repository.Name < ordered[j].Repository.Name
 	})
 
 	report := jsonReport{Root: root, DryRun: dryRun, Repositories: make([]jsonRepository, 0, len(ordered))}
 	for _, res := range ordered {
 		entry := jsonRepository{
-			Name:       res.repository.name,
-			Status:     statusLabel(res.status),
-			Detail:     res.detail,
-			Commits:    res.commits,
-			DurationMs: res.duration.Milliseconds(),
-			Remote:     res.remote,
-			Branch:     res.branch,
+			Name:       res.Repository.Name,
+			Status:     statusLabel(res.Status),
+			Detail:     res.Detail,
+			Commits:    res.Commits,
+			DurationMs: res.Duration.Milliseconds(),
+			Remote:     res.Remote,
+			Branch:     res.Branch,
 		}
-		if res.err != nil {
-			entry.Error = res.err.Error()
+		if res.Err != nil {
+			entry.Error = res.Err.Error()
 		}
 		report.Repositories = append(report.Repositories, entry)
-		switch res.status {
-		case statusUpToDate:
+		switch res.Status {
+		case model.StatusUpToDate:
 			report.Summary.UpToDate++
-		case statusUpdated:
+		case model.StatusUpdated:
 			report.Summary.FastForwarded++
-		case statusSkipped:
+		case model.StatusSkipped:
 			report.Summary.Skipped++
-		case statusFailed:
+		case model.StatusFailed:
 			report.Summary.Failed++
-		case statusAhead:
+		case model.StatusAhead:
 			report.Summary.Ahead++
 		}
 	}
@@ -160,7 +162,7 @@ func plural(n int, singular, pluralForm string) string {
 }
 
 // displayDir makes the common "." case read naturally in a sentence.
-func displayDir(dir string) string {
+func DisplayDir(dir string) string {
 	if dir == "." {
 		return "the current directory"
 	}
@@ -228,14 +230,14 @@ func truncate(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
-func runeLen(s string) int {
+func RuneLen(s string) int {
 	return len([]rune(s))
 }
 
 // padRight aligns on characters rather than bytes, so repository names that
 // are not plain ASCII still line up in a column.
 func padRight(s string, width int) string {
-	if padding := width - runeLen(s); padding > 0 {
+	if padding := width - RuneLen(s); padding > 0 {
 		return s + strings.Repeat(" ", padding)
 	}
 	return s
